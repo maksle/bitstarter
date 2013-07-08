@@ -24,6 +24,7 @@ References:
 var fs = require('fs');
 var program = require('commander');
 var cheerio = require('cheerio');
+var rest = require('restler');
 var HTMLFILE_DEFAULT = "index.html";
 var CHECKSFILE_DEFAULT = "checks.json";
 
@@ -44,8 +45,8 @@ var loadChecks = function(checksfile) {
     return JSON.parse(fs.readFileSync(checksfile));
 };
 
-var checkHtmlFile = function(htmlfile, checksfile) {
-    $ = cheerioHtmlFile(htmlfile);
+var checkHtml = function(cheerioContext, checksfile) {
+    var $ = cheerioContext;
     var checks = loadChecks(checksfile).sort();
     var out = {};
     for(var ii in checks) {
@@ -53,7 +54,32 @@ var checkHtmlFile = function(htmlfile, checksfile) {
         out[checks[ii]] = present;
     }
     return out;
+}
+
+var checkHtmlFile = function(htmlfile, checksfile) {
+    $ = cheerioHtmlFile(htmlfile);
+    var res = checkHtml($, checksfile);
+    printResult(res);
 };
+
+var checkUrl = function(url, checksfile) {
+    var request = rest.get(url);
+    request.on('complete', function(result) {
+	if (result instanceof Error) {
+	    console.log("%s is bad. Exiting", url)
+	    process.exit(1);
+	} else {
+	    var html = request.request.res.rawEncoded;
+	    var $ = cheerio.load(html);
+	    var res = checkHtml($, checksfile);
+	    printResult(res);
+	}   
+    });
+};
+
+function printResult(input) {
+    console.log(JSON.stringify(input, null, 4));
+}
 
 var clone = function(fn) {
     // Workaround for commander.js issue.
@@ -65,10 +91,10 @@ if(require.main == module) {
     program
         .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
         .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
+	.option('-u, --url <url_address>', 'URL address to check')
         .parse(process.argv);
-    var checkJson = checkHtmlFile(program.file, program.checks);
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson);
+    if (program.url) checkUrl(program.url, program.checks);
+    else checkHtmlFile(program.file, program.checks);
 } else {
     exports.checkHtmlFile = checkHtmlFile;
 }
